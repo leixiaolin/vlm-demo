@@ -1,0 +1,6 @@
+{"image_id":"office_sample_001","scene_type":"open_office","expected_risks":[],"must_review":false}
+{"image_id":"office_sample_002","scene_type":"corridor","expected_risks":[{"risk_type":"fall_or_abnormal_posture","severity":"high"}],"must_review":true}
+{"image_id":"office_sample_003","scene_type":"meeting_room","expected_risks":[],"must_review":false}
+{"image_id":"office_sample_004","scene_type":"archive_room","expected_risks":[{"risk_type":"restricted_area_presence","severity":"medium"}],"must_review":true}
+{"image_id":"office_sample_005","scene_type":"open_office","expected_risks":[{"risk_type":"possible_sensitive_material_capture","severity":"medium"}],"must_review":true}
+

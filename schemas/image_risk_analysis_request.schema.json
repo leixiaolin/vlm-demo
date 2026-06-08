@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.local/schemas/image_risk_analysis_request.schema.json",
+  "title": "OfficeImageRiskAnalysisRequest",
+  "type": "object",
+  "required": ["image_id", "site_context", "analysis_profile"],
+  "additionalProperties": false,
+  "properties": {
+    "image_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "image_url": {
+      "type": "string",
+      "description": "URL for a sanitized image. Either image_url or image_base64 should be supplied."
+    },
+    "image_base64": {
+      "type": "string",
+      "description": "Base64 data URL for a sanitized image. Either image_url or image_base64 should be supplied."
+    },
+    "site_context": {
+      "type": "object",
+      "required": ["site_type", "zone_type", "restricted_area"],
+      "additionalProperties": false,
+      "properties": {
+        "site_type": {
+          "type": "string",
+          "enum": ["indoor_office"]
+        },
+        "zone_type": {
+          "type": "string",
+          "enum": ["open_office", "meeting_room", "corridor", "lobby", "reception", "server_room", "archive_room", "warehouse_entry", "unknown"]
+        },
+        "restricted_area": {
+          "type": "boolean"
+        },
+        "policy_notes": {
+          "type": "array",
+          "items": {"type": "string"}
+        }
+      }
+    },
+    "analysis_profile": {
+      "type": "string",
+      "enum": ["zero_shot_v1", "few_shot_v1", "structured_schema_v1"]
+    },
+    "privacy_controls": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "sanitized": {"type": "boolean"},
+        "face_blurred": {"type": "boolean"},
+        "screen_blurred": {"type": "boolean"},
+        "metadata_removed": {"type": "boolean"}
+      }
+    }
+  },
+  "oneOf": [
+    {"required": ["image_url"]},
+    {"required": ["image_base64"]}
+  ]
+}
+

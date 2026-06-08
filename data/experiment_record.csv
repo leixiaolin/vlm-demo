@@ -1,0 +1,4 @@
+run_id,image_id,model_provider,model_name,prompt_profile,schema_version,latency_ms,estimated_cost,raw_output_path,predicted_risks,overall_severity,needs_review,manual_result,error_type,reviewer_note
+run_001,office_sample_001,cloud_vlm,vision_model,structured_schema_v1,1.0.0,,,,[],none,false,,,待填
+run_001,office_sample_002,cloud_vlm,vision_model,structured_schema_v1,1.0.0,,,,[],unknown,true,,,待填
+

@@ -1,0 +1,69 @@
+{
+  "version": "1.0.0",
+  "domain": "indoor_office_image_snapshot",
+  "risk_types": [
+    {
+      "code": "fall_or_abnormal_posture",
+      "name_zh": "人员倒地/异常姿态",
+      "default_severity": "high",
+      "minimum_visible_evidence": "人员躺倒、蜷缩、趴伏或姿态明显异常，且身体轮廓可见",
+      "common_false_positives": ["弯腰捡东西", "坐在地上整理物品", "被桌椅遮挡导致姿态不完整"]
+    },
+    {
+      "code": "conflict_or_physical_altercation",
+      "name_zh": "疑似冲突/拉扯",
+      "default_severity": "high",
+      "minimum_visible_evidence": "可见推搡、拉扯、挥手击打、多人围堵或身体接触冲突迹象",
+      "common_false_positives": ["正常握手", "递送物品", "团队讨论手势幅度较大"]
+    },
+    {
+      "code": "smoking_or_open_flame",
+      "name_zh": "室内吸烟/明火",
+      "default_severity": "high",
+      "minimum_visible_evidence": "可见香烟、烟雾、火焰、点火动作或明火源",
+      "common_false_positives": ["拿笔靠近嘴部", "喝水", "电子设备反光"]
+    },
+    {
+      "code": "restricted_area_presence",
+      "name_zh": "禁区/敏感区域人员出现",
+      "default_severity": "medium",
+      "minimum_visible_evidence": "人员出现在已标注为机房、档案室、仓库、财务室等敏感区域",
+      "common_false_positives": ["区域标注错误", "授权人员正常进入", "开放办公区被误标为禁区"]
+    },
+    {
+      "code": "unusual_gathering",
+      "name_zh": "多人异常聚集",
+      "default_severity": "medium",
+      "minimum_visible_evidence": "多人在非会议区域密集聚集，且与正常办公活动不一致",
+      "common_false_positives": ["正常会议", "培训", "临时讨论", "排队"]
+    },
+    {
+      "code": "camera_obstruction_or_tamper",
+      "name_zh": "摄像头遮挡/画面异常",
+      "default_severity": "high",
+      "minimum_visible_evidence": "画面被遮挡、严重模糊、强光干扰、镜头偏转或异常黑屏",
+      "common_false_positives": ["正常近景人员经过", "临时光照变化", "低清晰度压缩"]
+    },
+    {
+      "code": "possible_sensitive_material_capture",
+      "name_zh": "疑似拍摄屏幕/白板/资料",
+      "default_severity": "medium",
+      "minimum_visible_evidence": "可见手机或相机对准屏幕、白板、纸质资料等敏感内容载体",
+      "common_false_positives": ["扫码", "视频会议", "查看手机", "正常拍摄公开资料"]
+    },
+    {
+      "code": "badge_or_visitor_pass_missing",
+      "name_zh": "工牌/访客证明显缺失",
+      "default_severity": "low",
+      "minimum_visible_evidence": "画质足够、制度要求明确，且胸前或指定位置明显未见证件",
+      "common_false_positives": ["角度遮挡", "证件在口袋或挂绳背面", "画质不足"]
+    }
+  ],
+  "severity_levels": ["none", "low", "medium", "high", "critical", "unknown"],
+  "confidence_policy": {
+    "high_confidence_threshold": 0.85,
+    "medium_review_threshold": 0.75,
+    "low_confidence_action": "record_only"
+  }
+}
+

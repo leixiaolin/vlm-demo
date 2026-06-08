@@ -1,0 +1,7 @@
+image_id,image_path_or_url,source_type,privacy_status,scene_type,zone_type,restricted_area,split,notes
+office_sample_001,images/office_sample_001.jpg,synthetic,sanitized,open_office,open_office,false,dev,正常开放办公区样例占位
+office_sample_002,images/office_sample_002.jpg,synthetic,sanitized,corridor,corridor,false,dev,走廊疑似倒地样例占位
+office_sample_003,images/office_sample_003.jpg,synthetic,sanitized,meeting_room,meeting_room,false,dev,会议室多人正常讨论困难负样本
+office_sample_004,images/office_sample_004.jpg,synthetic,sanitized,archive_room,archive_room,true,dev,敏感区域人员出现样例占位
+office_sample_005,images/office_sample_005.jpg,synthetic,sanitized,open_office,open_office,false,dev,疑似拍摄资料样例占位
+
