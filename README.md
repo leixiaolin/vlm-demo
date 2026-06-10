@@ -10,12 +10,14 @@
 - `docs/data_collection.md`：公开室内办公图片采集脚本说明。
 - `docs/image_description_test.md`：批量图片描述测试流程说明。
 - `docs/ovis25_local_eval.md`：本地部署 Ovis2.5-2B 并测试 data 图片的流程说明。
+- `docs/gar1b_local_eval.md`：本地部署 GAR-1B 并测试 data 图片的流程说明。
 - `schemas/`：请求/响应 JSON Schema 与风险标签字典。
 - `prompts/`：零样本、少样本、强结构化三类实验提示词。
 - `data/`：评测集清单、人工标注表、实验记录表与样例 JSONL。
 - `scripts/collect_office_images.py`：从 Openverse/Wikimedia Commons 公开媒体 API 收集到 150-300 张室内办公有人活动图片，并生成来源与评测清单。
 - `scripts/run_image_description_test.py`：批量调用视觉模型生成图片描述 JSONL，支持 mock 本地验证和 OpenAI Responses API。
 - `scripts/run_ovis25_local_eval.py`：本地加载 Ovis2.5-2B，对 data 图片执行安全风险检测并记录性能。
+- `scripts/run_gar1b_local_eval.py`：本地加载 GAR-1B，对 data 图片执行安全风险检测并记录性能。
 - `scripts/summarize_ovis25_results.py`：汇总 Ovis2.5-2B 本地测试结果。
 - `scripts/evaluate_results.py`：本地评测脚本，计算准确率、误报率、漏报率、结构化合规率等指标。
 - `scripts/build_research_workbook.mjs`：根据 CSV/JSONL/评测结果生成 Excel 预研工作簿。
@@ -73,6 +75,25 @@ python scripts/run_ovis25_local_eval.py `
 python scripts/summarize_ovis25_results.py `
   --input-jsonl outputs\ovis25_2b_data15_results.jsonl `
   --output-md outputs\ovis25_2b_data15_report.md
+```
+
+本地 GAR-1B 测试：
+
+```powershell
+python scripts/run_gar1b_local_eval.py --dry-run --limit 3
+
+python scripts/run_gar1b_local_eval.py `
+  --limit 15 `
+  --prompt-file prompts\ovis_security_risk_detection_compact.md `
+  --max-new-tokens 128 `
+  --max-pixels 131072 `
+  --output-jsonl outputs\gar1b_data15_results.jsonl `
+  --summary-json outputs\gar1b_data15_summary.json
+
+python scripts/summarize_ovis25_results.py `
+  --input-jsonl outputs\gar1b_data15_results.jsonl `
+  --output-md outputs\gar1b_data15_report.md `
+  --title "GAR-1B Local Evaluation Report"
 ```
 
 ```powershell

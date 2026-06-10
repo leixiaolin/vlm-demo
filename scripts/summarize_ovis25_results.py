@@ -60,7 +60,7 @@ def risk_names(payload: Any) -> list[str]:
     return names
 
 
-def render_report(rows: list[dict[str, Any]]) -> str:
+def render_report(rows: list[dict[str, Any]], title: str, notes: list[str]) -> str:
     total_times = [row.get("total_seconds") for row in rows if isinstance(row.get("total_seconds"), (int, float))]
     generate_times = [row.get("generate_seconds") for row in rows if isinstance(row.get("generate_seconds"), (int, float))]
     parse_errors = [row for row in rows if row.get("parse_error")]
@@ -82,7 +82,7 @@ def render_report(rows: list[dict[str, Any]]) -> str:
         risk_counter.update(risk_names(payload))
 
     lines = [
-        "# Ovis2.5-2B Local Evaluation Report",
+        f"# {title}",
         "",
         "## Runtime Summary",
         "",
@@ -122,16 +122,9 @@ def render_report(rows: list[dict[str, Any]]) -> str:
             f"risks={risk_names(payload)}"
         )
 
-    lines.extend(
-        [
-            "",
-            "## Notes",
-            "",
-            "- This run used the compact Ovis prompt to keep CPU inference practical.",
-            "- The current machine ran on CPU float32; no NVIDIA GPU was detected.",
-            "- JSON parse success does not guarantee business correctness. Schema/shape issues and false positives still require manual review.",
-        ]
-    )
+    lines.extend(["", "## Notes", ""])
+    for note in notes:
+        lines.append(f"- {note}")
     return "\n".join(lines) + "\n"
 
 
@@ -139,18 +132,29 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Summarize Ovis2.5 evaluation JSONL results.")
     parser.add_argument("--input-jsonl", type=Path, default=Path("outputs/ovis25_2b_data15_results.jsonl"))
     parser.add_argument("--output-md", type=Path, default=Path("outputs/ovis25_2b_data15_report.md"))
+    parser.add_argument("--title", default="Ovis2.5-2B Local Evaluation Report")
+    parser.add_argument(
+        "--note",
+        action="append",
+        default=[],
+        help="Add a bullet to the report Notes section. Can be passed multiple times.",
+    )
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
     rows = load_jsonl(args.input_jsonl)
+    notes = args.note or [
+        "This run used the compact Ovis prompt to keep CPU inference practical.",
+        "The current machine ran on CPU float32; no NVIDIA GPU was detected.",
+        "JSON parse success does not guarantee business correctness. Schema/shape issues and false positives still require manual review.",
+    ]
     args.output_md.parent.mkdir(parents=True, exist_ok=True)
-    args.output_md.write_text(render_report(rows), encoding="utf-8")
+    args.output_md.write_text(render_report(rows, args.title, notes), encoding="utf-8")
     print(f"Wrote {args.output_md}")
     return 0
 
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
