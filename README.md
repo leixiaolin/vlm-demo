@@ -11,6 +11,7 @@
 - `docs/image_description_test.md`：批量图片描述测试流程说明。
 - `docs/ovis25_local_eval.md`：本地部署 Ovis2.5-2B 并测试 data 图片的流程说明。
 - `docs/gar1b_local_eval.md`：本地部署 GAR-1B 并测试 data 图片的流程说明。
+- `docs/dam_local_eval.md`：本地部署 NVIDIA DAM 并测试 data 图片的流程说明（建议）。
 - `schemas/`：请求/响应 JSON Schema 与风险标签字典。
 - `prompts/`：零样本、少样本、强结构化三类实验提示词。
 - `data/`：评测集清单、人工标注表、实验记录表与样例 JSONL。
@@ -144,6 +145,124 @@ python scripts/summarize_ovis25_results.py `
   --title "GAR-1B Local Evaluation Report"
 ```
 
+### 区域理解模型本地测试建议
+
+本项目已完成对 GAR-1B 的本地评测集成。以下对 NVIDIA Describe Anything Model (DAM) 和 GAR 两个区域理解模型的本地部署和测试提出建议，并说明主要实现方式。
+
+#### 模型对比
+
+| 特性 | NVIDIA DAM-3B | GAR-1B |
+|------|---------------|--------|
+| 来源 | NVIDIA Research (NVlabs) | Haochen Wang 等 (ICLR 2026) |
+| 模型规模 | 3B 参数 | 1B 参数 |
+| 核心能力 | 区域级详细描述（图像+视频） | 区域级精确理解 + 多区域关系推理 |
+| 输入方式 | 点/框/涂鸦/掩码 | 点/框/涂鸦/掩码 |
+| 视频支持 | DAM-3B-Video 支持 | 零样本迁移到视频 |
+| 依赖框架 | PyTorch + 自研 dam 包 | PyTorch + xtuner + transformers |
+| 许可证 | NVIDIA Noncommercial (模型权重) | Apache-2.0 |
+| HuggingFace ID | `nvidia/DAM-3B` | `HaochenWang/GAR-1B` |
+| GitHub | [NVlabs/describe-anything](https://github.com/NVlabs/describe-anything) | [Haochen-Wang409/Grasp-Any-Region](https://github.com/Haochen-Wang409/Grasp-Any-Region) |
+
+#### NVIDIA Describe Anything Model (DAM) 本地测试建议
+
+DAM 由 NVIDIA Research 开发（ICCV 2025），接受图像/视频中的点、框、涂鸦或掩码作为区域输入，输出该区域的详细描述。在办公场所风险检测场景中，DAM 可用于对画面中特定可疑区域（如屏幕、桌面文件、人员手部动作）进行精细化的文字描述，辅助风险初筛。
+
+**1. 安装**
+
+```powershell
+# 方式一：直接安装 dam 包（推荐）
+pip install git+https://github.com/NVlabs/describe-anything
+
+# 方式二：克隆后本地安装
+git clone https://github.com/NVlabs/describe-anything
+cd describe-anything
+pip install -v .
+```
+
+DAM 还提供了一个自包含脚本 `examples/dam_with_sam_self_contained.py`，无需安装额外依赖即可运行，适合快速验证。
+
+**2. 模型权重**
+
+```powershell
+# 图像版 DAM
+# HuggingFace ID: nvidia/DAM-3B
+$env:DAM_MODEL_PATH="nvidia/DAM-3B"
+
+# 图像+视频联合版 DAM
+# HuggingFace ID: nvidia/DAM-3B-Video
+$env:DAM_MODEL_PATH="nvidia/DAM-3B-Video"
+```
+
+注意：DAM 模型权重采用 NVIDIA Noncommercial License，仅限非商业用途。
+
+**3. 接入本项目的建议实现方式**
+
+推荐通过 DAM 提供的 OpenAI-compatible API 服务接入，使现有脚本无需大幅改动即可调用：
+
+```powershell
+# 启动 DAM 推理服务（图像版）
+python dam_server.py `
+  --model-path nvidia/DAM-3B `
+  --conv-mode v1 `
+  --prompt-mode focal_prompt `
+  --temperature 0.2 `
+  --max_new_tokens 512 `
+  --workers 1
+
+# 启动 DAM 推理服务（图像+视频联合版）
+python dam_server.py `
+  --model-path nvidia/DAM-3B-Video `
+  --conv-mode v1 `
+  --prompt-mode focal_prompt `
+  --temperature 0.2 `
+  --max_new_tokens 512 `
+  --workers 1 `
+  --image_video_joint_checkpoint
+```
+
+服务启动后，可通过 OpenAI SDK 或 HTTP 请求调用：
+
+```python
+# 使用 OpenAI SDK 调用
+from openai import OpenAI
+client = OpenAI(base_url="http://localhost:8000/v1", api_key="empty")
+response = client.chat.completions.create(
+    model="describe_anything_model",
+    messages=[...],
+)
+```
+
+也可以编写 `scripts/run_dam_local_eval.py`，参照 `scripts/run_gar1b_local_eval.py` 的模式，通过 DAM 的 Python API 直接加载模型推理。主要实现步骤：
+
+1. 安装 `dam` 包并加载 `nvidia/DAM-3B` 模型
+2. 读取 `data/office_images/evaluation_manifest_collected.csv` 中的图片清单
+3. 对每张图片构造整图掩码（全图作为 `<Prompt0>` 区域），或对图中检测到的关键区域（屏幕、桌面等）生成掩码
+4. 调用 DAM 生成区域描述
+5. 用提示词引导 DAM 按安全风险维度输出结构化 JSON
+6. 将结果写入 JSONL，用 `scripts/summarize_ovis25_results.py` 汇总
+
+**4. 单图快速验证**
+
+```powershell
+# 使用 SAM + DAM 对指定区域生成描述
+python examples/dam_with_sam.py `
+  --image_path data/office_images/images/sample.jpg `
+  --points "[[500, 300]]" `
+  --output_image_path outputs/dam_test_output.png
+```
+
+#### GAR-1B 本地测试补充说明
+
+GAR-1B 已在本项目中完成集成（见上方命令和 `docs/gar1b_local_eval.md`）。以下补充 DAM/GAR 的选型建议：
+
+- **纯描述质量**：GAR-1B 在 DLC-Bench 上超过 DAM-3B +4.5 分（论文数据），单区域描述精度更高。
+- **多区域关系推理**：GAR 原生支持多区域交互理解和组合推理，适合分析画面中多个人物/物体之间的关联（如人员与屏幕、手部与文件的关系）。
+- **参数量与部署成本**：GAR-1B 仅 1B 参数，CPU 部署更具可行性；DAM-3B 需 3B 参数，建议 GPU 环境。
+- **许可证**：GAR-1B 采用 Apache-2.0 许可，DAM 模型权重为 NVIDIA Noncommercial License。商业场景优先考虑 GAR。
+- **视频理解**：DAM 有专门的 DAM-3B-Video 版本；GAR 零样本即可迁移到视频任务。
+
+**建议**：先用 GAR-1B 完成基线评测，再视需要引入 DAM-3B 做对比实验。两者可共用相同的评测清单和提示词模板，便于横向对比。
+
 ```powershell
 python scripts/evaluate_results.py `
   --labels data/labels_sample.jsonl `
@@ -181,7 +300,6 @@ python scripts/evaluate_results.py `
 - 只上传已授权、脱敏、模拟或公开样本，真实办公图片不默认出域。
 - 模型结论只作为风险提示，所有中高风险和低置信关键风险默认进入人工复核。
 - 单帧无法确认的行为必须输出“疑似”或“不足以判断”，不能臆测身份、动机、情绪或法律结论。
-
 
 可以的，这个方法在工程上完全可行，本质上是用**“关键帧采样 + 静态图像理解 + 跨帧信息融合”**来近似视频理解。我先直接回答你的问题，再说明它的能力边界。
 
@@ -229,8 +347,6 @@ python scripts/evaluate_results.py `
 - **结合音频转写**：把语音转文字与帧描述交织在一起，理解准确度会大幅提升
 
 **总结一下**：这个方法在实际工程中经常被用作轻量级视频理解的起点，对内容相对静态、结构化强的视频效果不错，还能批量处理。但它不能替代真正的视频模型去理解连续性动作和细微时序因果。如果你想用它来分析某类具体视频，我可以帮你设计抽帧策略和提示词模板。
-
-
 
 针对“内部办公场所窃密与数据泄露风险”这类主题的视频，通常属于**安全培训、风险演示、场景复盘或渗透测试记录**。这类视频的核心特征在于：**行为动作的连续性强、风险细节多且微小、场景切换代表风险类型的变化**。
 
@@ -352,4 +468,4 @@ python scripts/evaluate_results.py `
 2. **处理连续动作**：对于快速偷拍这类一秒内完成的动作，前后3-5帧会被连续描述为“偷拍”。总结时的提示词明确要求“将连续、同一人物的同一风险行为合并为一次事件”，避免把一个动作误报成多次。
 3. **结合音频的特别处理**：如果视频有音频（如培训讲解），可先用ASR转写，并按时间戳与帧描述交织。总结时，大模型就能将“视频动作”与“讲师讲解”对应起来，理解视频的叙事意图（例如：知道这是一个演示正确行为的，还是演示反面案例的）。
 
-这套策略专门适配于你关注的这类高细节、高时序关联的风险主题视频，能最大限度发挥“静态图+大模型”方案的能力。需要的话，我可以针对某个具体风险场景（比如防尾随、防偷拍）再做更定制化的调整。
+这套策略专门适配于你关注的这类高细节、高时序关联的风险主题视频，能最大限度发挥“静态图+大模型”方案的能力。需要的话，可以针对某个具体风险场景（比如尾随、偷拍）再做更定制化的调整。

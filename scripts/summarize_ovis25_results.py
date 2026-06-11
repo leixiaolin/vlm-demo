@@ -16,7 +16,7 @@ EXPECTED_KEYS = {"scene_type", "people_count_range", "activity", "risks", "needs
 
 def load_jsonl(path: Path) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
-    with path.open("r", encoding="utf-8") as handle:
+    with path.open("r", encoding="utf-8-sig") as handle:
         for line in handle:
             if line.strip():
                 rows.append(json.loads(line))
