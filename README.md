@@ -1,4 +1,4 @@
-# 室内办公图片抓拍风险行为智能分析预研包
+# 室内办公区域风险行为智能分析预研包
 
 本仓库用于验证“云端多模态大模型 + 图片描述/结构化风险判断”在室内办公重点场所人员风险行为分析中的可行性。当前交付不是完整产品，而是一套可复现实验资产：技术报告、接口草案、风险标签、提示词、评测表模板和评估脚本。
 
@@ -151,17 +151,17 @@ python scripts/summarize_ovis25_results.py `
 
 #### 模型对比
 
-| 特性 | NVIDIA DAM-3B | GAR-1B |
-|------|---------------|--------|
-| 来源 | NVIDIA Research (NVlabs) | Haochen Wang 等 (ICLR 2026) |
-| 模型规模 | 3B 参数 | 1B 参数 |
-| 核心能力 | 区域级详细描述（图像+视频） | 区域级精确理解 + 多区域关系推理 |
-| 输入方式 | 点/框/涂鸦/掩码 | 点/框/涂鸦/掩码 |
-| 视频支持 | DAM-3B-Video 支持 | 零样本迁移到视频 |
-| 依赖框架 | PyTorch + 自研 dam 包 | PyTorch + xtuner + transformers |
-| 许可证 | NVIDIA Noncommercial (模型权重) | Apache-2.0 |
-| HuggingFace ID | `nvidia/DAM-3B` | `HaochenWang/GAR-1B` |
-| GitHub | [NVlabs/describe-anything](https://github.com/NVlabs/describe-anything) | [Haochen-Wang409/Grasp-Any-Region](https://github.com/Haochen-Wang409/Grasp-Any-Region) |
+| 特性           | NVIDIA DAM-3B                                                        | GAR-1B                                                                               |
+| -------------- | -------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| 来源           | NVIDIA Research (NVlabs)                                             | Haochen Wang 等 (ICLR 2026)                                                          |
+| 模型规模       | 3B 参数                                                              | 1B 参数                                                                              |
+| 核心能力       | 区域级详细描述（图像+视频）                                          | 区域级精确理解 + 多区域关系推理                                                      |
+| 输入方式       | 点/框/涂鸦/掩码                                                      | 点/框/涂鸦/掩码                                                                      |
+| 视频支持       | DAM-3B-Video 支持                                                    | 零样本迁移到视频                                                                     |
+| 依赖框架       | PyTorch + 自研 dam 包                                                | PyTorch + xtuner + transformers                                                      |
+| 许可证         | NVIDIA Noncommercial (模型权重)                                      | Apache-2.0                                                                           |
+| HuggingFace ID | `nvidia/DAM-3B`                                                    | `HaochenWang/GAR-1B`                                                               |
+| GitHub         | [NVlabs/describe-anything](https://github.com/NVlabs/describe-anything) | [Haochen-Wang409/Grasp-Any-Region](https://github.com/Haochen-Wang409/Grasp-Any-Region) |
 
 #### NVIDIA Describe Anything Model (DAM) 本地测试建议
 
