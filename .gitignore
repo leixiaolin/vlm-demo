@@ -6,5 +6,6 @@ venv/
 .env
 .env.local
 outputs/
+models/
 data/office_images/orphaned_after_timeout/
-
+.claude/

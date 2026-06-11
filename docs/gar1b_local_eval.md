@@ -4,19 +4,19 @@
 
 ## 1. 配置模型路径
 
-先把 GAR-1B 权重下载到本机，或确认可访问的 Hugging Face 仓库 ID，然后设置：
+公开模型仓库为 `HaochenWang/GAR-1B`。可直接使用该 Hugging Face ID，或先把权重下载到本机后设置本地目录：
 
 ```powershell
-$env:GAR_MODEL_ID="你的本地GAR-1B目录或HF仓库ID"
+$env:GAR_MODEL_ID="HaochenWang/GAR-1B"
 ```
 
 也可以写入 `.env`：
 
 ```dotenv
-GAR_MODEL_ID=你的本地GAR-1B目录或HF仓库ID
+GAR_MODEL_ID=HaochenWang/GAR-1B
 ```
 
-如果模型需要 `AutoModelForVision2Seq` 加载，把 `GAR_LOADER` 设为 `vision2seq`；默认使用 `AutoModelForCausalLM` 和 `trust_remote_code=True`。
+脚本默认使用 `AutoModel`、`trust_remote_code=True`，并关闭 flash attention 以兼容 CPU/Windows 环境。GAR 是区域理解模型；本评测脚本会自动构造整图 mask，把整张 data 图片作为 `<Prompt0>` 区域进行风险初筛。
 
 ## 2. 先做 dry-run
 
@@ -37,13 +37,14 @@ python scripts/run_gar1b_local_eval.py `
   --max-pixels 131072
 ```
 
-脚本会自动尝试三种常见本地 VLM 推理方式：
+脚本会优先使用 GAR 官方风格的整图 mask 推理；若指定其他兼容模型，也可尝试通用推理方式：
 
+- `gar`：整图 mask + GAR `model.generate(...)`
 - `processor`：`AutoProcessor.apply_chat_template(...)` + `model.generate(...)`
 - `chat`：模型自带 `model.chat(...)`
 - `ovis`：兼容已有 Ovis 风格的 `preprocess_inputs(...)`
 
-如果 GAR-1B 的模型卡要求固定方式，可以用 `--infer-strategy processor|chat|ovis` 指定。
+如果需要固定方式，可以用 `--infer-strategy gar|processor|chat|ovis` 指定。
 
 ## 4. 跑 data 目录图片测试
 
@@ -85,4 +86,12 @@ OSError: [WinError 126] Error loading "...torch\lib\fbgemm.dll" or one of its de
 python -c "import torch; print(torch.__version__)"
 ```
 
-常见处理方式是安装完整的 Microsoft Visual C++/OpenMP 运行库，或更换为当前机器可导入的 PyTorch wheel。只有 `import torch` 成功后，本地 GAR-1B 和 Ovis 这类 VLM 测试才能继续。
+常见处理方式是安装完整的 Microsoft Visual C++/OpenMP 运行库，或更换为当前机器可导入的 PyTorch wheel。本仓库当前验证通过的 Windows CPU 组合是：
+
+```text
+torch==2.12.0
+torchvision==0.27.0
+transformers==4.57.3
+```
+
+只有 `import torch` 成功后，本地 GAR-1B 和 Ovis 这类 VLM 测试才能继续。

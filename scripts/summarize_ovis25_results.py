@@ -27,6 +27,8 @@ def validate_payload(payload: Any) -> list[str]:
     issues: list[str] = []
     if not isinstance(payload, dict):
         return ["parsed_output is not an object"]
+    if isinstance(payload.get("text"), str):
+        return []
     missing = EXPECTED_KEYS - set(payload)
     if missing:
         issues.append(f"missing keys: {sorted(missing)}")
@@ -68,6 +70,7 @@ def render_report(rows: list[dict[str, Any]], title: str, notes: list[str]) -> s
     scene_counter: Counter[str] = Counter()
     risk_counter: Counter[str] = Counter()
     review_count = 0
+    text_mode_count = 0
 
     for row in rows:
         image_id = str(row.get("image_id", "unknown"))
@@ -76,7 +79,10 @@ def render_report(rows: list[dict[str, Any]], title: str, notes: list[str]) -> s
         if issues:
             schema_issues[image_id] = issues
         if isinstance(payload, dict):
-            scene_counter[str(payload.get("scene_type", "missing"))] += 1
+            if isinstance(payload.get("text"), str):
+                text_mode_count += 1
+            else:
+                scene_counter[str(payload.get("scene_type", "missing"))] += 1
             if payload.get("needs_review") is True:
                 review_count += 1
         risk_counter.update(risk_names(payload))
@@ -89,6 +95,7 @@ def render_report(rows: list[dict[str, Any]], title: str, notes: list[str]) -> s
         f"- Images processed: {len(rows)}",
         f"- Parse errors: {len(parse_errors)}",
         f"- Schema/shape issues: {len(schema_issues)}",
+        f"- Text-mode outputs: {text_mode_count}",
         f"- Needs review count: {review_count}",
         f"- Average total seconds/image: {mean(total_times):.2f}" if total_times else "- Average total seconds/image: n/a",
         f"- Average generation seconds/image: {mean(generate_times):.2f}" if generate_times else "- Average generation seconds/image: n/a",
@@ -115,12 +122,15 @@ def render_report(rows: list[dict[str, Any]], title: str, notes: list[str]) -> s
     lines.extend(["", "## Per-image Outputs", ""])
     for row in rows:
         payload = row.get("parsed_output") or {}
-        lines.append(
-            f"- `{row.get('image_id')}`: {row.get('total_seconds')}s, "
-            f"scene=`{payload.get('scene_type') if isinstance(payload, dict) else 'invalid'}`, "
-            f"review=`{payload.get('needs_review') if isinstance(payload, dict) else 'invalid'}`, "
-            f"risks={risk_names(payload)}"
-        )
+        if isinstance(payload, dict) and isinstance(payload.get("text"), str):
+            lines.append(f"- `{row.get('image_id')}`: {row.get('total_seconds')}s, text=\"{payload.get('text')}\"")
+        else:
+            lines.append(
+                f"- `{row.get('image_id')}`: {row.get('total_seconds')}s, "
+                f"scene=`{payload.get('scene_type') if isinstance(payload, dict) else 'invalid'}`, "
+                f"review=`{payload.get('needs_review') if isinstance(payload, dict) else 'invalid'}`, "
+                f"risks={risk_names(payload)}"
+            )
 
     lines.extend(["", "## Notes", ""])
     for note in notes:

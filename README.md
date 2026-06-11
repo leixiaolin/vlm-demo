@@ -16,6 +16,7 @@
 - `data/`：评测集清单、人工标注表、实验记录表与样例 JSONL。
 - `scripts/collect_office_images.py`：从 Openverse/Wikimedia Commons 公开媒体 API 收集到 150-300 张室内办公有人活动图片，并生成来源与评测清单。
 - `scripts/run_image_description_test.py`：批量调用视觉模型生成图片描述 JSONL，支持 mock 本地验证和 OpenAI Responses API。
+- `scripts/run_video_description_test.py`：批量抽取 `data/video` 视频帧，调用视觉模型生成单帧描述，并汇总为视频级 JSON/Markdown 报告。
 - `scripts/run_ovis25_local_eval.py`：本地加载 Ovis2.5-2B，对 data 图片执行安全风险检测并记录性能。
 - `scripts/run_gar1b_local_eval.py`：本地加载 GAR-1B，对 data 图片执行安全风险检测并记录性能。
 - `scripts/summarize_ovis25_results.py`：汇总 Ovis2.5-2B 本地测试结果。
@@ -61,6 +62,52 @@ python scripts/run_image_description_test.py --provider mock --limit 3 --output-
 python scripts/run_image_description_test.py
 ```
 
+视频描述测试使用 `data/video` 目录下的视频，流程为“按时间间隔抽帧 -> 单帧结构化描述 -> 视频级汇总”。先用 mock 验证抽帧、断点续跑和输出链路：
+
+```powershell
+python scripts/run_video_description_test.py `
+  --provider mock `
+  --video-dir data\video `
+  --output-dir outputs\video_description_results_mock
+```
+
+调用真实 API 前配置 `.env`，例如使用支持 `image_url` 的 OpenAI-compatible 视觉模型：
+
+```dotenv
+LLM_PROVIDER=openai_chat
+LLM_MODEL=glm-5v-turbo
+LLM_API_URL=https://open.bigmodel.cn/api/paas/v4/chat/completions
+LLM_API_KEY_ENV=OPENAI_API_KEY
+OPENAI_API_KEY=你的 API Key
+```
+
+真实 API 运行命令：
+
+```powershell
+python scripts/run_video_description_test.py `
+  --video-dir data\video `
+  --output-dir outputs\video_description_results_data_video_api `
+  --timeout-seconds 120
+```
+
+常用参数：
+
+- `--dry-run`：只打印视频元数据和计划抽帧时间，不调用模型、不写描述结果。
+- `--frame-interval-seconds 0.5`：抽帧间隔，默认每 0.5 秒抽 1 帧。
+- `--limit-videos 1` / `--offset-videos 1`：限制或跳过视频数量，便于分批测试。
+- `--limit-frames-per-video 5`：限制每个视频抽帧数，适合真实 API 烟测。
+- `--frame-max-output-tokens 1800`：单帧描述输出 token 上限。
+- `--summary-max-output-tokens 3200`：视频汇总输出 token 上限。
+- `--retry-attempts 1`：模型输出 JSON 解析失败或请求超时时的重试次数。
+- `--no-resume`：不复用已有 JSONL 记录，强制重新处理所有帧。
+
+输出目录结构：
+
+- `outputs/video_description_results_data_video_api/<video_id>/frames/`：抽取出的帧图。
+- `outputs/video_description_results_data_video_api/<video_id>/frame_descriptions.jsonl`：逐帧描述结果，每行一个 JSON。
+- `outputs/video_description_results_data_video_api/<video_id>/video_summary.json`：视频级汇总原始 JSON。
+- `outputs/video_description_results_data_video_api/<video_id>/video_summary.md`：视频级汇总 Markdown 报告。
+
 本地 Ovis2.5-2B 测试：
 
 ```powershell
@@ -83,6 +130,7 @@ python scripts/summarize_ovis25_results.py `
 python scripts/run_gar1b_local_eval.py --dry-run --limit 3
 
 python scripts/run_gar1b_local_eval.py `
+  --model-id HaochenWang/GAR-1B `
   --limit 15 `
   --prompt-file prompts\ovis_security_risk_detection_compact.md `
   --max-new-tokens 128 `

@@ -14,12 +14,19 @@ from pathlib import Path
 from typing import Any
 
 
-DEFAULT_MODEL_ID = "GAR-1B"
+DEFAULT_MODEL_ID = "HaochenWang/GAR-1B"
 DEFAULT_MANIFEST = Path("data/office_images/evaluation_manifest_collected.csv")
 DEFAULT_PROMPT = Path("prompts/ovis_security_risk_detection_compact.md")
 DEFAULT_OUTPUT = Path("outputs/gar1b_results.jsonl")
 DEFAULT_SUMMARY = Path("outputs/gar1b_summary.json")
 DEFAULT_MAX_PIXELS = 131072
+
+for stream in (sys.stdout, sys.stderr):
+    if hasattr(stream, "reconfigure"):
+        try:
+            stream.reconfigure(encoding="utf-8")
+        except Exception:
+            pass
 
 
 def load_env_file(path: Path) -> None:
@@ -125,9 +132,10 @@ def extract_json_object(text: str) -> tuple[dict[str, Any] | None, str | None]:
 
 def import_runtime():
     try:
+        import numpy as np
         import torch
         from PIL import Image
-        from transformers import AutoModelForCausalLM, AutoProcessor, AutoTokenizer
+        from transformers import AutoModel, AutoModelForCausalLM, AutoProcessor, AutoTokenizer, GenerationConfig
     except Exception as exc:
         raise RuntimeError("Missing local VLM dependencies. Install them with `pip install -r requirements.txt`.") from exc
 
@@ -135,7 +143,7 @@ def import_runtime():
         from transformers import AutoModelForVision2Seq
     except Exception:
         AutoModelForVision2Seq = None
-    return torch, Image, AutoProcessor, AutoTokenizer, AutoModelForCausalLM, AutoModelForVision2Seq
+    return np, torch, Image, AutoModel, AutoProcessor, AutoTokenizer, AutoModelForCausalLM, AutoModelForVision2Seq, GenerationConfig
 
 
 def choose_device_dtype(torch, requested_device: str, requested_dtype: str):
@@ -167,6 +175,15 @@ def tensor_to_device(value: Any, device: str, dtype) -> Any:
     return value
 
 
+def resize_to_max_pixels(image, max_pixels: int):
+    if max_pixels <= 0 or image.width * image.height <= max_pixels:
+        return image
+    scale = (max_pixels / float(image.width * image.height)) ** 0.5
+    width = max(1, int(image.width * scale))
+    height = max(1, int(image.height * scale))
+    return image.resize((width, height))
+
+
 def load_model_and_processor(
     *,
     model_id: str,
@@ -176,6 +193,7 @@ def load_model_and_processor(
     torch,
     AutoProcessor,
     AutoTokenizer,
+    AutoModel,
     AutoModelForCausalLM,
     AutoModelForVision2Seq,
 ):
@@ -190,6 +208,8 @@ def load_model_and_processor(
         if AutoModelForVision2Seq is None:
             raise RuntimeError("This transformers version does not provide AutoModelForVision2Seq.")
         model_cls = AutoModelForVision2Seq
+    elif loader == "model" or (loader == "auto" and "GAR" in model_id.upper()):
+        model_cls = AutoModel
     else:
         model_cls = AutoModelForCausalLM
 
@@ -197,8 +217,9 @@ def load_model_and_processor(
         model_id,
         torch_dtype=dtype,
         trust_remote_code=True,
+        use_flash_attn=False,
     )
-    model = model.to(device)
+    model = model.to(device=device, dtype=dtype)
     model.eval()
     return model, processor, tokenizer
 
@@ -286,6 +307,104 @@ def run_with_processor(
     return decode_generated(model, processor, tokenizer, outputs, input_token_count)
 
 
+def build_gar_whole_image_inputs(*, np, Image, processor, image, prompt: str, device: str, dtype, max_pixels: int) -> dict[str, Any]:
+    if processor is None:
+        raise RuntimeError("AutoProcessor is unavailable for this model.")
+    if not hasattr(processor, "apply_chat_template"):
+        raise RuntimeError("GAR processor does not provide apply_chat_template.")
+
+    image = resize_to_max_pixels(image, max_pixels)
+    prompt_token = "<Prompt0>"
+    prompt_idx = 0
+    prompt_number = int(getattr(getattr(processor, "config", None), "prompt_numbers", 5) or 5)
+    prompt_tokens = [f"<Prompt{i_p}>" for i_p in range(prompt_number)] + ["<NO_Prompt>"]
+    visual_prompt_ids = {
+        token: processor.tokenizer.convert_tokens_to_ids(token) - 128256
+        for token in prompt_tokens
+    }
+    prompt_id = visual_prompt_ids.get(prompt_token, visual_prompt_ids["<NO_Prompt>"])
+    no_prompt_id = visual_prompt_ids["<NO_Prompt>"]
+
+    filled_matrix = no_prompt_id * np.ones((image.height, image.width), dtype=np.uint8)
+    filled_matrix[:, :] = prompt_id
+    visual_prompt = Image.fromarray(filled_matrix)
+
+    reserved_token = f"<|reserved_special_token_{prompt_idx + 2}|>"
+    reserved_token_id = processor.tokenizer.convert_tokens_to_ids(reserved_token)
+    region_marker = reserved_token * 256
+    qs = (
+        f"There are some objects I am curious about: {prompt_token};\n"
+        f"{prompt_token}: {region_marker}\n"
+        "Analyze the whole masked region as the full image.\n"
+        f"{prompt}"
+    )
+    messages = [{"role": "user", "content": [{"type": "image", "image": image}, {"type": "text", "text": qs}]}]
+    raw_prompt = processor.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)
+    model_inputs = processor(
+        text=[raw_prompt],
+        images=[image],
+        visual_prompts=[visual_prompt],
+        return_tensors="pt",
+        max_num_tiles=1,
+    )
+
+    pixel_values = model_inputs["pixel_values"].flatten(0, 1).to(device).to(dtype)
+    mask_values = model_inputs["mask_values"].squeeze().to(device).to(dtype)
+    input_ids = model_inputs["input_ids"].squeeze(0).to(device).unsqueeze(0)
+    attention_mask = model_inputs["attention_mask"].squeeze(0).to(device).unsqueeze(0)
+    aspect_ratios = model_inputs["aspect_ratio"].unsqueeze(0).to(device)
+    bboxes = [{str(reserved_token_id): (0.0, 0.0, 1.0, 1.0)}]
+
+    return {
+        "input_ids": input_ids,
+        "attention_mask": attention_mask,
+        "pixel_values": pixel_values,
+        "global_mask_values": mask_values,
+        "bboxes": bboxes,
+        "aspect_ratios": aspect_ratios,
+    }
+
+
+def run_with_gar_whole_image(
+    *,
+    np,
+    model,
+    processor,
+    torch,
+    Image,
+    GenerationConfig,
+    image,
+    prompt: str,
+    device: str,
+    dtype,
+    max_new_tokens: int,
+    max_pixels: int,
+    do_sample: bool,
+) -> str:
+    data_sample = build_gar_whole_image_inputs(
+        np=np,
+        Image=Image,
+        processor=processor,
+        image=image,
+        prompt=prompt,
+        device=device,
+        dtype=dtype,
+        max_pixels=max_pixels,
+    )
+    with torch.no_grad():
+        generate_ids = model.generate(
+            **data_sample,
+            generation_config=GenerationConfig(
+                max_new_tokens=max_new_tokens,
+                do_sample=do_sample,
+                eos_token_id=processor.tokenizer.eos_token_id,
+                pad_token_id=processor.tokenizer.pad_token_id,
+            ),
+            return_dict=True,
+        )
+    return processor.tokenizer.decode(generate_ids.sequences[0], skip_special_tokens=True).strip()
+
+
 def run_with_chat_method(
     *,
     model,
@@ -321,10 +440,12 @@ def run_with_chat_method(
 def run_one(
     *,
     model,
+    np,
     processor,
     tokenizer,
     torch,
     Image,
+    GenerationConfig,
     image_path: Path,
     prompt: str,
     device: str,
@@ -338,10 +459,26 @@ def run_one(
     generate_started = time.perf_counter()
     last_error = None
 
-    strategies = [infer_strategy] if infer_strategy != "auto" else ["processor", "chat", "ovis"]
+    strategies = [infer_strategy] if infer_strategy != "auto" else ["gar", "processor", "chat", "ovis"]
     for strategy in strategies:
         try:
-            if strategy == "processor":
+            if strategy == "gar":
+                raw_output = run_with_gar_whole_image(
+                    np=np,
+                    model=model,
+                    processor=processor,
+                    torch=torch,
+                    Image=Image,
+                    GenerationConfig=GenerationConfig,
+                    image=image,
+                    prompt=prompt,
+                    device=device,
+                    dtype=dtype,
+                    max_new_tokens=max_new_tokens,
+                    max_pixels=max_pixels,
+                    do_sample=do_sample,
+                )
+            elif strategy == "processor":
                 raw_output = run_with_processor(
                     model=model,
                     processor=processor,
@@ -404,8 +541,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--offset", type=int, default=env_int("GAR_EVAL_OFFSET", 0))
     parser.add_argument("--device", choices=["auto", "cpu", "cuda"], default=os.environ.get("GAR_DEVICE", "auto"))
     parser.add_argument("--dtype", choices=["auto", "float32", "float16", "bfloat16"], default=os.environ.get("GAR_DTYPE", "auto"))
-    parser.add_argument("--loader", choices=["causal", "vision2seq"], default=os.environ.get("GAR_LOADER", "causal"))
-    parser.add_argument("--infer-strategy", choices=["auto", "processor", "chat", "ovis"], default=os.environ.get("GAR_INFER_STRATEGY", "auto"))
+    parser.add_argument("--loader", choices=["auto", "model", "causal", "vision2seq"], default=os.environ.get("GAR_LOADER", "auto"))
+    parser.add_argument("--infer-strategy", choices=["auto", "gar", "processor", "chat", "ovis"], default=os.environ.get("GAR_INFER_STRATEGY", "auto"))
+    parser.add_argument("--output-format", choices=["json", "text"], default=os.environ.get("GAR_OUTPUT_FORMAT", "json"))
     parser.add_argument("--max-pixels", type=int, default=env_int("GAR_MAX_PIXELS", DEFAULT_MAX_PIXELS))
     parser.add_argument("--max-new-tokens", type=int, default=env_int("GAR_MAX_NEW_TOKENS", 128))
     parser.add_argument("--do-sample", action="store_true", default=env_bool("GAR_DO_SAMPLE", False))
@@ -437,6 +575,7 @@ def main() -> int:
                 "dtype": args.dtype,
                 "loader": args.loader,
                 "infer_strategy": args.infer_strategy,
+                "output_format": args.output_format,
                 "max_pixels": args.max_pixels,
                 "max_new_tokens": args.max_new_tokens,
             },
@@ -449,7 +588,7 @@ def main() -> int:
         return 0
 
     prompt = args.prompt_file.read_text(encoding="utf-8")
-    torch, Image, AutoProcessor, AutoTokenizer, AutoModelForCausalLM, AutoModelForVision2Seq = import_runtime()
+    np, torch, Image, AutoModel, AutoProcessor, AutoTokenizer, AutoModelForCausalLM, AutoModelForVision2Seq, GenerationConfig = import_runtime()
     device, dtype = choose_device_dtype(torch, args.device, args.dtype)
     if device == "cuda" and not torch.cuda.is_available():
         print("CUDA was requested but torch.cuda.is_available() is false.", file=sys.stderr)
@@ -465,6 +604,7 @@ def main() -> int:
         torch=torch,
         AutoProcessor=AutoProcessor,
         AutoTokenizer=AutoTokenizer,
+        AutoModel=AutoModel,
         AutoModelForCausalLM=AutoModelForCausalLM,
         AutoModelForVision2Seq=AutoModelForVision2Seq,
     )
@@ -489,10 +629,12 @@ def main() -> int:
                 raise FileNotFoundError(str(image_path))
             metrics = run_one(
                 model=model,
+                np=np,
                 processor=processor,
                 tokenizer=tokenizer,
                 torch=torch,
                 Image=Image,
+                GenerationConfig=GenerationConfig,
                 image_path=image_path,
                 prompt=prompt,
                 device=device,
@@ -503,7 +645,11 @@ def main() -> int:
                 infer_strategy=args.infer_strategy,
             )
             raw_output = metrics.pop("raw_output")
-            parsed, error = extract_json_object(raw_output)
+            if args.output_format == "text":
+                parsed = {"text": raw_output}
+                error = None if raw_output.strip() else "empty model output"
+            else:
+                parsed, error = extract_json_object(raw_output)
         except Exception as exc:
             error = str(exc)
             runtime_errors += 1
@@ -517,6 +663,7 @@ def main() -> int:
             "device": device,
             "dtype": str(dtype).replace("torch.", ""),
             "loader": args.loader,
+            "output_format": args.output_format,
             "total_seconds": round(total_seconds, 4),
             "parsed_output": parsed,
             "raw_output": raw_output,
@@ -538,6 +685,7 @@ def main() -> int:
         "dtype": str(dtype).replace("torch.", ""),
         "loader": args.loader,
         "infer_strategy": args.infer_strategy,
+        "output_format": args.output_format,
         "load_seconds": round(load_seconds, 4),
         "processed": len(results),
         "successful_parses": len(successful),
